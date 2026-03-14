@@ -3,6 +3,8 @@ from django.conf import settings
 from jhora.panchanga import drik
 from jhora.horoscope.chart import charts
 from jhora import const
+import datetime as dt
+
 
 # Planet constants mapped to readable names
 PLANETS = {
@@ -441,89 +443,178 @@ def get_divisional_chart(jd, division):
     """
     Calculate divisional chart positions for all planets.
 
-    D1  = Rasi (natal chart, division=1)
-    D9  = Navamsa (division=9)  — spouse, dharma, inner self
-    D10 = Dashamsa (division=10) — career, profession
-    D2  = Hora
-    D3  = Drekkana
-    D12 = Dwadashamsa
-
-    Formula: D-N position = floor(longitude % 30 / (30/N)) * (360/N/12)
-    Then add to the starting sign based on odd/even sign rules.
+    Supported divisions:
+    D2  = Hora             — wealth
+    D3  = Drekkana         — siblings, courage
+    D7  = Saptamsa         — children, progeny
+    D9  = Navamsa          — spouse, dharma, inner self (most important)
+    D10 = Dashamsa         — career, profession
+    D12 = Dwadashamsa      — parents
+    D16 = Shodashamsa      — vehicles, comforts, happiness
+    D30 = Trimshamsa       — misfortunes, health, evil deeds
+    D60 = Shashtiamsa      — most detailed karma chart
     """
     init_ephe()
 
     planet_positions = get_planet_positions(jd)
     div_positions    = {}
 
+    def calc_div_rasi(rasi_index, deg_in_rasi, division):
+        """
+        Core divisional chart calculation.
+        Returns the divisional rasi index (0-11).
+        """
+        part_size  = 30.0 / division
+        part_num   = int(deg_in_rasi / part_size)   # 0-based
+
+        # ── D2 Hora ────────────────────────────────────────────────
+        # Odd signs (Aries etc): 1st half=Leo, 2nd half=Cancer
+        # Even signs: 1st half=Cancer, 2nd half=Leo
+        if division == 2:
+            if rasi_index % 2 == 0:   # odd sign
+                return 4 if part_num == 0 else 3   # Leo or Cancer
+            else:                      # even sign
+                return 3 if part_num == 0 else 4
+
+        # ── D3 Drekkana ─────────────────────────────────────────────
+        # 1st decan = same sign
+        # 2nd decan = 5th from sign
+        # 3rd decan = 9th from sign
+        elif division == 3:
+            offsets = [0, 4, 8]
+            return (rasi_index + offsets[part_num]) % 12
+
+        # ── D7 Saptamsa ─────────────────────────────────────────────
+        # Odd signs: count from same sign
+        # Even signs: count from 7th sign
+        elif division == 7:
+            if rasi_index % 2 == 0:   # odd sign
+                return (rasi_index + part_num) % 12
+            else:                      # even sign
+                return (rasi_index + 6 + part_num) % 12
+
+        # ── D9 Navamsa ──────────────────────────────────────────────
+        # Fire signs  (0,4,8):  start from Aries   (0)
+        # Earth signs (1,5,9):  start from Capricorn(9)
+        # Air signs   (2,6,10): start from Libra    (6)
+        # Water signs (3,7,11): start from Cancer   (3)
+        elif division == 9:
+            element    = rasi_index % 4
+            start_map  = {0: 0, 1: 9, 2: 6, 3: 3}
+            start_sign = start_map[element]
+            return (start_sign + part_num) % 12
+
+        # ── D10 Dashamsa ────────────────────────────────────────────
+        # Odd signs:  count from same sign
+        # Even signs: count from 9th sign
+        elif division == 10:
+            if rasi_index % 2 == 0:   # odd sign
+                return (rasi_index + part_num) % 12
+            else:                      # even sign
+                return (rasi_index + 8 + part_num) % 12
+
+        # ── D12 Dwadashamsa ─────────────────────────────────────────
+        # Always count from same sign
+        elif division == 12:
+            return (rasi_index + part_num) % 12
+
+        # ── D16 Shodashamsa ─────────────────────────────────────────
+        # Movable signs  (0,3,6,9):  start from Aries  (0)
+        # Fixed signs    (1,4,7,10): start from Leo     (4)
+        # Mutable signs  (2,5,8,11): start from Sagittarius (8)
+        elif division == 16:
+            modality   = rasi_index % 3
+            start_map  = {0: 0, 1: 4, 2: 8}
+            start_sign = start_map[modality]
+            return (start_sign + part_num) % 12
+
+        # ── D30 Trimshamsa ──────────────────────────────────────────
+        # Special unequal division — classical Parashari rules:
+        # Odd signs:
+        #   Mars  : 0–5°
+        #   Saturn: 5–10°
+        #   Jupiter: 10–18°
+        #   Mercury: 18–25°
+        #   Venus  : 25–30°
+        # Even signs: reverse order
+        # Trimshamsa lords map to their own signs
+        elif division == 30:
+            ODD_TRIMSHA = [
+                (5,  0),   # Mars    → Aries  (0)
+                (10, 9),   # Saturn  → Capricorn (9)
+                (18, 8),   # Jupiter → Sagittarius (8)
+                (25, 2),   # Mercury → Gemini (2)
+                (30, 6),   # Venus   → Libra  (6)
+            ]
+            EVEN_TRIMSHA = [
+                (5,  6),   # Venus   → Libra
+                (12, 2),   # Mercury → Gemini
+                (20, 8),   # Jupiter → Sagittarius
+                (25, 9),   # Saturn  → Capricorn
+                (30, 0),   # Mars    → Aries
+            ]
+            table = ODD_TRIMSHA if rasi_index % 2 == 0 else EVEN_TRIMSHA
+            for threshold, result_sign in table:
+                if deg_in_rasi < threshold:
+                    return result_sign
+            return table[-1][1]
+
+        # ── D60 Shashtiamsa ─────────────────────────────────────────
+        # Each sign divided into 60 parts of 0.5° each.
+        # Count from same sign cyclically through all 12.
+        elif division == 60:
+            return (rasi_index + part_num) % 12
+
+        # Fallback
+        else:
+            return rasi_index
+
+    # Calculate for each planet
     for planet_name, data in planet_positions.items():
         longitude   = data['longitude']
-        rasi_index  = data['rasi_index']           # 0–11
-        deg_in_rasi = data['degree_in_rasi']       # 0–30
+        rasi_index  = data['rasi_index']
+        deg_in_rasi = data['degree_in_rasi']
 
-        # Each rasi is divided into N equal parts of (30/N) degrees
-        part_size   = 30.0 / division
-        part_number = int(deg_in_rasi / part_size)  # 0-based part within rasi
-
-        # D9 Navamsa rule: cycle of 12 signs starts from:
-        # Fire signs  (Aries, Leo, Sag)     → start from Aries   (0)
-        # Earth signs (Taurus, Virgo, Cap)  → start from Capricorn (9)
-        # Air signs   (Gemini, Libra, Aqua) → start from Libra    (6)
-        # Water signs (Cancer, Scorpio, Pis)→ start from Cancer   (3)
-        if division == 9:
-            element = rasi_index % 4
-            start_map = {0: 0, 1: 9, 2: 6, 3: 3}   # Fire/Earth/Air/Water
-            start_sign = start_map[element]
-        elif division == 10:
-            # D10: odd signs start from same sign, even signs start from 9th
-            if rasi_index % 2 == 0:   # odd sign (1,3,5...)
-                start_sign = rasi_index
-            else:                      # even sign
-                start_sign = (rasi_index + 8) % 12
-        elif division == 2:
-            # D2 Hora: Sun hora or Moon hora
-            start_sign = 4 if rasi_index % 2 == 0 else 3  # Leo or Cancer
-        elif division == 3:
-            # D3 Drekkana: 1st=same sign, 2nd=5th, 3rd=9th
-            start_sign = (rasi_index + part_number * 4) % 12
-        elif division == 12:
-            # D12: starts from same sign
-            start_sign = rasi_index
-        else:
-            start_sign = 0
-
-        div_rasi_index = (start_sign + part_number) % 12
+        div_rasi_index = calc_div_rasi(rasi_index, deg_in_rasi, division)
         div_rasi       = RASI_NAMES[div_rasi_index]
         div_lord       = RASI_LORDS[div_rasi_index]
 
         div_positions[planet_name] = {
-            'rasi':       div_rasi,
-            'rasi_index': div_rasi_index,
-            'lord':       div_lord,
+            'rasi':               div_rasi,
+            'rasi_index':         div_rasi_index,
+            'lord':               div_lord,
             'original_longitude': round(longitude, 6),
+            'original_rasi':      data['rasi'],
+            'degree_in_rasi':     round(deg_in_rasi, 4),
         }
 
     # Ascendant in divisional chart
-    asc_data    = get_ascendant_and_houses(jd, 0, 0)   # placeholder, recalc below
+    asc_data    = get_ascendant_and_houses(jd, 0, 0)
     asc_long    = asc_data['ascendant']['longitude']
     asc_rasi    = int(asc_long / 30)
     asc_deg     = asc_long % 30
-    part_size   = 30.0 / division
-    part_num    = int(asc_deg / part_size)
 
-    if division == 9:
-        element   = asc_rasi % 4
-        start_map = {0: 0, 1: 9, 2: 6, 3: 3}
-        start_sign = start_map[element]
-    elif division == 10:
-        start_sign = asc_rasi if asc_rasi % 2 == 0 else (asc_rasi + 8) % 12
-    else:
-        start_sign = asc_rasi
+    div_asc_index = calc_div_rasi(asc_rasi, asc_deg, division)
 
-    div_asc_index = (start_sign + part_num) % 12
+    # Division metadata
+    DIVISION_INFO = {
+        2:  {'name': 'Hora',           'purpose': 'Wealth and finances'},
+        3:  {'name': 'Drekkana',        'purpose': 'Siblings and courage'},
+        7:  {'name': 'Saptamsa',        'purpose': 'Children and progeny'},
+        9:  {'name': 'Navamsa',         'purpose': 'Spouse, dharma, inner self'},
+        10: {'name': 'Dashamsa',        'purpose': 'Career and profession'},
+        12: {'name': 'Dwadashamsa',     'purpose': 'Parents and ancestors'},
+        16: {'name': 'Shodashamsa',     'purpose': 'Vehicles and comforts'},
+        30: {'name': 'Trimshamsa',      'purpose': 'Misfortunes and health challenges'},
+        60: {'name': 'Shashtiamsa',     'purpose': 'Detailed karma, most sensitive chart'},
+    }
+
+    info = DIVISION_INFO.get(division, {'name': f'D{division}', 'purpose': ''})
 
     return {
         'division':   division,
+        'chart_name': info['name'],
+        'purpose':    info['purpose'],
         'ascendant':  {
             'rasi':       RASI_NAMES[div_asc_index],
             'rasi_index': div_asc_index,
@@ -531,7 +622,6 @@ def get_divisional_chart(jd, division):
         },
         'planets': div_positions,
     }
-
 
 # ─── YOGAS ─────────────────────────────────────────────────────────
 
@@ -1327,8 +1417,6 @@ def check_mangal_dosha(jd, latitude, longitude):
 
 
 # ─── PHASE 5: GOCHAR (TRANSITS) ────────────────────────────────────
-
-import datetime as dt
 
 # Transit interpretations for each planet through each house
 # Format: (house_number): (effect)

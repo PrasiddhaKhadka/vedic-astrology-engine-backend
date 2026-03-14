@@ -1,7 +1,7 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from core.astro.calculator import RASI_NAMES
+from core.astro.calculator import RASI_NAMES, RASI_LORDS
 from .serializers import BirthDataSerializer
 
 
@@ -258,11 +258,11 @@ def divisional_chart(request):
     division = request.data.get('division', 9)
     try:
         division = int(division)
-        if division not in [2, 3, 9, 10, 12]:
+        if division not in [2, 3, 7, 9, 10, 12, 16, 30, 60]:
             raise ValueError
     except (ValueError, TypeError):
         return Response(
-            {'errors': {'division': 'Must be one of: 2, 3, 9, 10, 12'}},
+            {'errors': {'division': 'Must be one of: 2, 3, 7, 9, 10, 12, 16, 30, 60'}},
             status=status.HTTP_400_BAD_REQUEST
         )
 
