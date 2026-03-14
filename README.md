@@ -44,7 +44,7 @@ Provides 19 endpoints covering everything from basic birth charts to advanced co
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/astrogyan.git
+git clone https://github.com/PrasiddhaKhadka/vedic-astrology-engine-backend
 cd astrogyan
 
 # Install dependencies
