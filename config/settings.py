@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'drf_spectacular',
     'core',
 ]
 
@@ -130,5 +131,38 @@ EPHE_PATH = BASE_DIR / 'ephemeris'
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+
+# Swagger / OpenAPI docs configuration
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'AstroGyan API',
+    'DESCRIPTION': (
+        '**Vedic Astrology API** built with Django + PySwissEph + PyJHora.\n\n'
+        'Uses **Lahiri ayanamsa** (sidereal) for all calculations.\n\n'
+        '### Phases\n'
+        '- **Phase 1** — Planet Positions & Houses\n'
+        '- **Phase 2** — Nakshatra, Panchang & Vimshottari Dasha\n'
+        '- **Phase 3** — Divisional Charts, Yogas, Ashtakavarga\n'
+        '- **Phase 4** — Compatibility (Guna Milan, Mangal Dosha)\n'
+        '- **Phase 5** — Transits (current & date-specific)\n'
+    ),
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'displayRequestDuration': True,
+        'filter': True,
+        'persistAuthorization': True,
+    },
+    'SORT_OPERATIONS': False,
+    'TAGS': [
+        {'name': 'Phase 1 — Planets & Houses',            'description': 'Planet positions and house cusps'},
+        {'name': 'Phase 2 — Nakshatra, Panchang & Dasha', 'description': 'Nakshatra, Panchang, Vimshottari Dasha'},
+        {'name': 'Phase 3 — Advanced Chart Analysis',     'description': 'Divisional charts, Yogas, Ashtakavarga'},
+        {'name': 'Phase 4 — Compatibility',               'description': 'Guna Milan and Mangal Dosha'},
+        {'name': 'Phase 5 — Transits',                    'description': 'Planetary transits and Moon Gochar'},
     ],
 }
