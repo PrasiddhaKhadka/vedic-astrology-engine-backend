@@ -1,8 +1,10 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-
+from core.astro.calculator import RASI_NAMES
 from .serializers import BirthDataSerializer
+
+
 from core.astro.calculator import (
     get_julian_day,
     get_planet_positions,
@@ -14,6 +16,8 @@ from core.astro.calculator import (
     get_divisional_chart,   
     get_yogas,             
     get_ashtakavarga,
+    calculate_ashtakoot, 
+    check_mangal_dosha,  
 )
 
 
@@ -314,3 +318,123 @@ def ashtakavarga(request):
         'ayanamsa': 'Lahiri',
         **result,
     })
+
+@api_view(['POST'])
+def guna_milan(request):
+    """
+    POST /api/v1/compatibility/guna/
+
+    Calculates 36-point Ashtakoot Guna matching between two people.
+
+    Request body requires TWO birth data sets:
+    {
+        "boy":  { year, month, day, hour, minute, latitude, longitude, utc_offset },
+        "girl": { year, month, day, hour, minute, latitude, longitude, utc_offset }
+    }
+    """
+    boy_data  = request.data.get('boy')
+    girl_data = request.data.get('girl')
+
+    if not boy_data or not girl_data:
+        return Response(
+            {'errors': 'Both "boy" and "girl" birth data are required.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    boy_serializer  = BirthDataSerializer(data=boy_data)
+    girl_serializer = BirthDataSerializer(data=girl_data)
+
+    errors = {}
+    if not boy_serializer.is_valid():
+        errors['boy'] = boy_serializer.errors
+    if not girl_serializer.is_valid():
+        errors['girl'] = girl_serializer.errors
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    b = boy_serializer.validated_data
+    g = girl_serializer.validated_data
+
+    jd_boy  = get_julian_day(b['year'], b['month'], b['day'],
+                              int(b['hour'] - b['utc_offset']), b['minute'])
+    jd_girl = get_julian_day(g['year'], g['month'], g['day'],
+                              int(g['hour'] - g['utc_offset']), g['minute'])
+
+    # Nakshatra data for both
+    boy_nak  = get_nakshatra(jd_boy)
+    girl_nak = get_nakshatra(jd_girl)
+
+    result = calculate_ashtakoot(jd_boy, jd_girl)
+
+    return Response({
+        'status':          'success',
+        'boy_nakshatra':   boy_nak['nakshatra'],
+        'girl_nakshatra':  girl_nak['nakshatra'],
+        'boy_rasi':        RASI_NAMES[int(boy_nak['moon_longitude'] / 30)],
+        'girl_rasi':       RASI_NAMES[int(girl_nak['moon_longitude'] / 30)],
+        **result,
+    })
+
+
+
+@api_view(['POST'])
+def mangal_dosha(request):
+    """
+    POST /api/v1/compatibility/dosha/
+
+    Checks Mangal Dosha for both partners.
+
+    Request body:
+    {
+        "boy":  { year, month, day, hour, minute, latitude, longitude, utc_offset },
+        "girl": { year, month, day, hour, minute, latitude, longitude, utc_offset }
+    }
+    """
+    boy_data  = request.data.get('boy')
+    girl_data = request.data.get('girl')
+
+    if not boy_data or not girl_data:
+        return Response(
+            {'errors': 'Both "boy" and "girl" birth data are required.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    boy_serializer  = BirthDataSerializer(data=boy_data)
+    girl_serializer = BirthDataSerializer(data=girl_data)
+
+    errors = {}
+    if not boy_serializer.is_valid():
+        errors['boy'] = boy_serializer.errors
+    if not girl_serializer.is_valid():
+        errors['girl'] = girl_serializer.errors
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    b = boy_serializer.validated_data
+    g = girl_serializer.validated_data
+
+    jd_boy  = get_julian_day(b['year'], b['month'], b['day'],
+                              int(b['hour'] - b['utc_offset']), b['minute'])
+    jd_girl = get_julian_day(g['year'], g['month'], g['day'],
+                              int(g['hour'] - g['utc_offset']), g['minute'])
+
+    boy_dosha  = check_mangal_dosha(jd_boy,  b['latitude'], b['longitude'])
+    girl_dosha = check_mangal_dosha(jd_girl, g['latitude'], g['longitude'])
+
+    # Double Mangal Dosha cancels each other
+    double_dosha_cancels = (
+        boy_dosha['has_mangal_dosha'] and girl_dosha['has_mangal_dosha']
+    )
+
+    return Response({
+        'status':                 'success',
+        'boy':                    boy_dosha,
+        'girl':                   girl_dosha,
+        'double_dosha_cancels':   double_dosha_cancels,
+        'note': (
+            "Both partners have Mangal Dosha — cancels each other in most traditions."
+            if double_dosha_cancels else
+            "Check individual dosha details above."
+        ),
+    })
+

@@ -15,4 +15,7 @@ urlpatterns = [
     path('divisional/',   views.divisional_chart,   name='divisional-chart'),
     path('yogas/',        views.yogas,              name='yogas'),
     path('ashtakavarga/', views.ashtakavarga,       name='ashtakavarga'),
+    # Phase 4
+    path('compatibility/guna/',   views.guna_milan,         name='guna-milan'),
+    path('compatibility/dosha/',  views.mangal_dosha,       name='mangal-dosha'),
 ]

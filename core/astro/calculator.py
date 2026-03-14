@@ -862,3 +862,465 @@ def get_ashtakavarga(jd, latitude, longitude):
         'bhinnashtakavarga': planet_avarga,
         'sarvashtakavarga':  sarvashtakavarga,
     }
+
+
+# ─── PHASE 4: KUNDALI MILAN ────────────────────────────────────────
+
+# Nakshatra lords in Vimshottari order (for Koota calculations)
+NAK_LORD = [
+    "Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu",
+    "Jupiter", "Saturn", "Mercury", "Ketu", "Venus", "Sun",
+    "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury",
+    "Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu",
+    "Jupiter", "Saturn", "Mercury"
+]
+
+# Gana classification per nakshatra (0=Deva, 1=Manushya, 2=Rakshasa)
+NAK_GANA = [
+    0, 2, 0, 0, 0, 2, 0, 0, 2,  # Ashwini–Ashlesha
+    2, 2, 0, 0, 2, 0, 2, 0, 2,  # Magha–Jyeshtha
+    2, 0, 0, 0, 2, 0, 0, 0, 0   # Mula–Revati
+]
+GANA_NAMES = ["Deva", "Manushya", "Rakshasa"]
+
+# Nadi classification per nakshatra (0=Aadi, 1=Madhya, 2=Antya)
+NAK_NADI = [
+    0, 1, 2, 2, 1, 0, 0, 1, 2,
+    0, 1, 2, 2, 1, 0, 0, 1, 2,
+    0, 1, 2, 2, 1, 0, 0, 1, 2
+]
+NADI_NAMES = ["Aadi", "Madhya", "Antya"]
+
+# Yoni (animal symbol) per nakshatra — 14 yoni pairs
+NAK_YONI = [
+    0, 12, 9, 4, 10, 10, 7, 7, 6,
+    13, 13, 3, 3, 11, 8, 11, 1, 2,
+    5, 5, 8, 6, 12, 0, 2, 4, 9
+]
+YONI_NAMES = [
+    "Horse", "Elephant", "Sheep", "Snake", "Dog",
+    "Cat", "Rat", "Cow", "Buffalo", "Tiger",
+    "Hare", "Monkey", "Lion", "Mongoose"
+]
+# Friendly yoni pairs (index pairs that are compatible)
+YONI_FRIENDLY = {
+    (0, 0), (1, 1), (2, 2), (3, 3), (4, 4),
+    (5, 5), (6, 6), (7, 7), (8, 8), (9, 9),
+    (10, 10), (11, 11), (12, 12), (13, 13),
+    # Natural allies
+    (0, 3), (3, 0),   # Horse-Snake (neutral in some texts, included here)
+    (1, 2), (2, 1),   # Elephant-Sheep
+    (4, 5), (5, 4),   # Dog-Cat (enemies in some texts — handled in scoring)
+}
+YONI_ENEMY = {
+    (0, 9), (9, 0),   # Horse-Tiger
+    (1, 13), (13, 1), # Elephant-Mongoose
+    (4, 9), (9, 4),   # Dog-Tiger
+    (6, 5), (5, 6),   # Rat-Cat
+    (7, 12), (12, 7), # Cow-Lion
+    (8, 12), (12, 8), # Buffalo-Lion
+    (10, 4), (4, 10), # Hare-Dog
+    (11, 0), (0, 11), # Monkey-Horse
+}
+
+# Rasi elements for Bhakoot calculation
+# 0=Fire, 1=Earth, 2=Air, 3=Water
+RASI_ELEMENT = [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3]
+
+# Rasi lords
+RASI_LORD = [
+    "Mars", "Venus", "Mercury", "Moon", "Sun", "Mercury",
+    "Venus", "Mars", "Jupiter", "Saturn", "Saturn", "Jupiter"
+]
+
+# Varna (social order) per rasi: 0=Brahmin, 1=Kshatriya, 2=Vaishya, 3=Shudra
+RASI_VARNA = [1, 3, 2, 0, 1, 2, 0, 1, 0, 3, 3, 0]
+VARNA_NAMES = ["Brahmin", "Kshatriya", "Vaishya", "Shudra"]
+
+# Vasya groups: which signs are attracted to which
+# 0=Chatushpada, 1=Manava, 2=Jalchar, 3=Vanchar, 4=Keeta
+RASI_VASYA = [0, 1, 1, 2, 0, 1, 1, 3, 1, 0, 1, 4]
+VASYA_NAMES = ["Chatushpada", "Manava", "Jalchar", "Vanchar", "Keeta"]
+
+# Vasya compatibility table (who controls whom)
+VASYA_ATTRACTED = {
+    0: [1],     # Chatushpada (Aries/Leo/Capricorn/half-Sagittarius) → Manava
+    1: [2, 4],  # Manava → Jalchar, Keeta
+    2: [0, 1],  # Jalchar → Chatushpada, Manava
+    3: [1],     # Vanchar → Manava
+    4: [1],     # Keeta → Manava
+}
+
+# Planetary friendship table for Graha Maitri
+PLANET_FRIENDS = {
+    "Sun":     ["Moon", "Mars", "Jupiter"],
+    "Moon":    ["Sun", "Mercury"],
+    "Mars":    ["Sun", "Moon", "Jupiter"],
+    "Mercury": ["Sun", "Venus"],
+    "Jupiter": ["Sun", "Moon", "Mars"],
+    "Venus":   ["Mercury", "Saturn"],
+    "Saturn":  ["Mercury", "Venus"],
+}
+PLANET_NEUTRAL = {
+    "Sun":     ["Mercury"],
+    "Moon":    ["Mars", "Jupiter", "Venus", "Saturn"],
+    "Mars":    ["Venus", "Saturn"],
+    "Mercury": ["Mars", "Jupiter", "Saturn"],
+    "Jupiter": ["Saturn"],
+    "Venus":   ["Mars", "Jupiter", "Moon"],
+    "Saturn":  ["Jupiter", "Mars"],
+}
+
+
+def _get_nak_data(jd):
+    """Helper: returns nakshatra index (0-26) and rasi index for Moon."""
+    moon_long  = get_moon_longitude(jd)
+    nak_index  = int(moon_long / (360 / 27))
+    rasi_index = int(moon_long / 30)
+    return nak_index, rasi_index
+
+
+def _planet_relationship(lord1, lord2):
+    """Returns relationship between two rasi lords: Friend/Neutral/Enemy."""
+    if lord1 == lord2:
+        return "Same"
+    if lord2 in PLANET_FRIENDS.get(lord1, []):
+        return "Friend"
+    if lord2 in PLANET_NEUTRAL.get(lord1, []):
+        return "Neutral"
+    return "Enemy"
+
+
+def calculate_ashtakoot(jd1, jd2):
+    """
+    Calculate all 8 Kootas of Ashtakoot Guna Milan.
+
+    Returns each koota's score, max, result, and description.
+    Total max = 36 points.
+
+    The 8 Kootas:
+    1. Varna     (1 pt)  — spiritual compatibility
+    2. Vasya     (2 pts) — dominance/attraction
+    3. Tara      (3 pts) — destiny/health
+    4. Yoni      (4 pts) — physical/intimate compatibility
+    5. Graha Maitri (5 pts) — mental compatibility
+    6. Gana      (6 pts) — temperament
+    7. Bhakoot   (7 pts) — emotional/family compatibility
+    8. Nadi      (8 pts) — health/progeny
+    """
+    nak1, rasi1 = _get_nak_data(jd1)
+    nak2, rasi2 = _get_nak_data(jd2)
+
+    results = []
+
+    # ── 1. VARNA (max 1) ───────────────────────────────────────────
+    # Groom's varna >= Bride's varna = compatible
+    varna1 = RASI_VARNA[rasi1]
+    varna2 = RASI_VARNA[rasi2]
+    # Lower index = higher varna (Brahmin=0 is highest)
+    if varna1 <= varna2:
+        varna_score = 1
+        varna_result = "Compatible"
+    else:
+        varna_score = 0
+        varna_result = "Incompatible — groom's varna lower than bride's"
+
+    results.append({
+        'koota':       'Varna',
+        'max':         1,
+        'score':       varna_score,
+        'result':      varna_result,
+        'boy_varna':   VARNA_NAMES[varna1],
+        'girl_varna':  VARNA_NAMES[varna2],
+        'description': 'Spiritual and ego compatibility.',
+    })
+
+    # ── 2. VASYA (max 2) ────────────────────────────────────────────
+    vasya1 = RASI_VASYA[rasi1]
+    vasya2 = RASI_VASYA[rasi2]
+    if vasya1 == vasya2:
+        vasya_score = 2
+        vasya_result = "Same group — full score"
+    elif vasya2 in VASYA_ATTRACTED.get(vasya1, []):
+        vasya_score = 2
+        vasya_result = "Boy attracts girl"
+    elif vasya1 in VASYA_ATTRACTED.get(vasya2, []):
+        vasya_score = 1
+        vasya_result = "Girl attracts boy — partial score"
+    else:
+        vasya_score = 0
+        vasya_result = "No vasya attraction"
+
+    results.append({
+        'koota':       'Vasya',
+        'max':         2,
+        'score':       vasya_score,
+        'result':      vasya_result,
+        'boy_vasya':   VASYA_NAMES[vasya1],
+        'girl_vasya':  VASYA_NAMES[vasya2],
+        'description': 'Mutual attraction and control.',
+    })
+
+    # ── 3. TARA (max 3) ─────────────────────────────────────────────
+    # Count nakshatras from boy to girl and girl to boy
+    # Divide by 9, check remainder: 1,3,5,7 = auspicious
+    AUSPICIOUS_TARA = {1, 3, 5, 7}
+    tara_b2g = ((nak2 - nak1) % 27) + 1
+    tara_g2b = ((nak1 - nak2) % 27) + 1
+    remainder_b2g = ((tara_b2g - 1) % 9) + 1
+    remainder_g2b = ((tara_g2b - 1) % 9) + 1
+
+    boy_auspicious  = remainder_b2g in AUSPICIOUS_TARA
+    girl_auspicious = remainder_g2b in AUSPICIOUS_TARA
+
+    if boy_auspicious and girl_auspicious:
+        tara_score = 3
+        tara_result = "Both auspicious"
+    elif boy_auspicious or girl_auspicious:
+        tara_score = 1.5
+        tara_result = "One side auspicious"
+    else:
+        tara_score = 0
+        tara_result = "Both inauspicious"
+
+    results.append({
+        'koota':          'Tara',
+        'max':            3,
+        'score':          tara_score,
+        'result':         tara_result,
+        'boy_tara':       remainder_b2g,
+        'girl_tara':      remainder_g2b,
+        'description':    'Destiny, health, and well-being after marriage.',
+    })
+
+    # ── 4. YONI (max 4) ─────────────────────────────────────────────
+    yoni1 = NAK_YONI[nak1]
+    yoni2 = NAK_YONI[nak2]
+    pair  = (yoni1, yoni2)
+
+    if yoni1 == yoni2:
+        yoni_score = 4
+        yoni_result = "Same yoni — best"
+    elif pair in YONI_ENEMY:
+        yoni_score = 0
+        yoni_result = "Enemy yoni — incompatible"
+    elif pair in YONI_FRIENDLY:
+        yoni_score = 3
+        yoni_result = "Friendly yoni"
+    else:
+        yoni_score = 2
+        yoni_result = "Neutral yoni"
+
+    results.append({
+        'koota':      'Yoni',
+        'max':        4,
+        'score':      yoni_score,
+        'result':     yoni_result,
+        'boy_yoni':   YONI_NAMES[yoni1],
+        'girl_yoni':  YONI_NAMES[yoni2],
+        'description':'Physical and intimate compatibility.',
+    })
+
+    # ── 5. GRAHA MAITRI (max 5) ─────────────────────────────────────
+    lord1 = RASI_LORD[rasi1]
+    lord2 = RASI_LORD[rasi2]
+    rel_b2g = _planet_relationship(lord1, lord2)
+    rel_g2b = _planet_relationship(lord2, lord1)
+
+    if rel_b2g == "Same":
+        maitri_score = 5
+        maitri_result = "Same rasi lord — best"
+    elif rel_b2g == "Friend" and rel_g2b == "Friend":
+        maitri_score = 5
+        maitri_result = "Mutual friends"
+    elif rel_b2g == "Friend" or rel_g2b == "Friend":
+        maitri_score = 4
+        maitri_result = "One-sided friendship"
+    elif rel_b2g == "Neutral" and rel_g2b == "Neutral":
+        maitri_score = 3
+        maitri_result = "Both neutral"
+    elif rel_b2g == "Neutral" or rel_g2b == "Neutral":
+        maitri_score = 1
+        maitri_result = "One neutral, one enemy"
+    else:
+        maitri_score = 0
+        maitri_result = "Mutual enemies"
+
+    results.append({
+        'koota':        'Graha Maitri',
+        'max':          5,
+        'score':        maitri_score,
+        'result':       maitri_result,
+        'boy_lord':     lord1,
+        'girl_lord':    lord2,
+        'relationship': f"Boy→Girl: {rel_b2g}, Girl→Boy: {rel_g2b}",
+        'description':  'Mental compatibility and friendship between minds.',
+    })
+
+    # ── 6. GANA (max 6) ─────────────────────────────────────────────
+    gana1 = NAK_GANA[nak1]
+    gana2 = NAK_GANA[nak2]
+
+    if gana1 == gana2:
+        gana_score = 6
+        gana_result = "Same Gana — best"
+    elif (gana1 == 0 and gana2 == 1) or (gana1 == 1 and gana2 == 0):
+        gana_score = 5
+        gana_result = "Deva-Manushya — compatible"
+    elif (gana1 == 1 and gana2 == 2) or (gana1 == 2 and gana2 == 1):
+        gana_score = 1
+        gana_result = "Manushya-Rakshasa — low compatibility"
+    else:
+        # Deva-Rakshasa
+        gana_score = 0
+        gana_result = "Deva-Rakshasa — incompatible"
+
+    results.append({
+        'koota':      'Gana',
+        'max':        6,
+        'score':      gana_score,
+        'result':     gana_result,
+        'boy_gana':   GANA_NAMES[gana1],
+        'girl_gana':  GANA_NAMES[gana2],
+        'description':'Temperament and nature compatibility.',
+    })
+
+    # ── 7. BHAKOOT (max 7) ──────────────────────────────────────────
+    # Count rasi positions between partners
+    # Inauspicious combinations: 6-8, 5-9, 3-11 from each other
+    rasi_diff_b2g = ((rasi2 - rasi1) % 12) + 1
+    rasi_diff_g2b = ((rasi1 - rasi2) % 12) + 1
+
+    INAUSPICIOUS_BHAKOOT = {6, 8, 5, 9}  # 3-11 is debated, excluded here
+
+    if rasi_diff_b2g in INAUSPICIOUS_BHAKOOT or rasi_diff_g2b in INAUSPICIOUS_BHAKOOT:
+        bhakoot_score = 0
+        bhakoot_result = f"Inauspicious — {rasi_diff_b2g}-{rasi_diff_g2b} combination"
+    else:
+        bhakoot_score = 7
+        bhakoot_result = "Auspicious"
+
+    results.append({
+        'koota':       'Bhakoot',
+        'max':         7,
+        'score':       bhakoot_score,
+        'result':      bhakoot_result,
+        'boy_rasi':    RASI_NAMES[rasi1],
+        'girl_rasi':   RASI_NAMES[rasi2],
+        'rasi_diff':   f"{rasi_diff_b2g}-{rasi_diff_g2b}",
+        'description': 'Emotional and family well-being after marriage.',
+    })
+
+    # ── 8. NADI (max 8) ─────────────────────────────────────────────
+    nadi1 = NAK_NADI[nak1]
+    nadi2 = NAK_NADI[nak2]
+
+    if nadi1 == nadi2:
+        nadi_score = 0
+        nadi_result = f"Same Nadi ({NADI_NAMES[nadi1]}) — Nadi Dosha present"
+    else:
+        nadi_score = 8
+        nadi_result = "Different Nadi — full score"
+
+    results.append({
+        'koota':      'Nadi',
+        'max':        8,
+        'score':      nadi_score,
+        'result':     nadi_result,
+        'boy_nadi':   NADI_NAMES[nadi1],
+        'girl_nadi':  NADI_NAMES[nadi2],
+        'description':'Health, progeny, and genetic compatibility. Most critical koota.',
+    })
+
+    # ── TOTAL ────────────────────────────────────────────────────────
+    total_score = sum(k['score'] for k in results)
+
+    if total_score >= 32:
+        compatibility = "Excellent"
+        recommendation = "Highly recommended match"
+    elif total_score >= 24:
+        compatibility = "Good"
+        recommendation = "Recommended match"
+    elif total_score >= 18:
+        compatibility = "Average"
+        recommendation = "Acceptable match — consult an astrologer"
+    else:
+        compatibility = "Poor"
+        recommendation = "Not recommended without remedies"
+
+    return {
+        'total_score':     total_score,
+        'max_score':       36,
+        'percentage':      round((total_score / 36) * 100, 1),
+        'compatibility':   compatibility,
+        'recommendation':  recommendation,
+        'kootas':          results,
+    }
+
+
+def check_mangal_dosha(jd, latitude, longitude):
+    """
+    Detect Mangal Dosha (Kuja Dosha) from the birth chart.
+
+    Mars in houses 1, 2, 4, 7, 8, or 12 from Lagna causes Mangal Dosha.
+    Some traditions also check from Moon and Venus ascendants.
+
+    Exceptions (cancellations) are also checked.
+    """
+    planets = get_planet_positions(jd)
+    houses  = get_ascendant_and_houses(jd, latitude, longitude)
+
+    asc_rasi  = houses['ascendant']['rasi_index']
+    mars_rasi = planets['mars']['rasi_index']
+    moon_rasi = planets['moon']['rasi_index']
+    venus_rasi = planets['venus']['rasi_index']
+
+    DOSHA_HOUSES = {1, 2, 4, 7, 8, 12}
+
+    def house_of(planet_rasi, ref_rasi):
+        return ((planet_rasi - ref_rasi) % 12) + 1
+
+    mars_from_lagna = house_of(mars_rasi, asc_rasi)
+    mars_from_moon  = house_of(mars_rasi, moon_rasi)
+    mars_from_venus = house_of(mars_rasi, venus_rasi)
+
+    dosha_from_lagna = mars_from_lagna in DOSHA_HOUSES
+    dosha_from_moon  = mars_from_moon  in DOSHA_HOUSES
+    dosha_from_venus = mars_from_venus in DOSHA_HOUSES
+
+    # Cancellation conditions
+    cancellations = []
+
+    # Mars in own sign (Aries/Scorpio) or exaltation (Capricorn)
+    if mars_rasi in [0, 7, 9]:
+        cancellations.append("Mars in own sign or exaltation — dosha cancelled")
+
+    # Mars in 2nd house and 2nd lord strong
+    if mars_from_lagna == 2:
+        cancellations.append("Mars in 2nd — some traditions exempt this")
+
+    # Jupiter aspects Mars (Jupiter 5th/7th/9th from Mars)
+    jupi_rasi = planets['jupiter']['rasi_index']
+    jupi_from_mars = house_of(jupi_rasi, mars_rasi)
+    if jupi_from_mars in [5, 7, 9]:
+        cancellations.append("Jupiter aspects Mars — reduces dosha intensity")
+
+    # Both partners have Mangal Dosha — cancels each other
+    # (handled at compatibility level, noted here)
+
+    has_dosha = dosha_from_lagna  # Primary check
+
+    return {
+        'has_mangal_dosha':     has_dosha,
+        'mars_house_lagna':     mars_from_lagna,
+        'mars_house_moon':      mars_from_moon,
+        'mars_house_venus':     mars_from_venus,
+        'dosha_from_lagna':     dosha_from_lagna,
+        'dosha_from_moon':      dosha_from_moon,
+        'dosha_from_venus':     dosha_from_venus,
+        'cancellations':        cancellations,
+        'severity':             'High' if dosha_from_lagna and dosha_from_moon else
+                                'Medium' if dosha_from_lagna or dosha_from_moon else 'None',
+        'mars_rasi':            RASI_NAMES[mars_rasi],
+        'ascendant_rasi':       RASI_NAMES[asc_rasi],
+    }
