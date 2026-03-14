@@ -9,7 +9,11 @@ from core.astro.calculator import (
     get_ascendant_and_houses,
     get_nakshatra,     
     get_panchang,        
-    get_vimshottari_dasha
+    get_vimshottari_dasha,
+    get_antardasha,        
+    get_divisional_chart,   
+    get_yogas,             
+    get_ashtakavarga,
 )
 
 
@@ -200,5 +204,113 @@ def dasha(request):
 
     return Response({
         'status': 'success',
+        **result,
+    })
+
+
+@api_view(['POST'])
+def antardasha(request):
+    """
+    POST /api/v1/antardasha/
+
+    Returns Vimshottari Mahadasha with full Antardasha (sub-periods)
+    nested inside each Mahadasha period.
+    """
+    d, jd, errors = parse_birth_data(request)
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    result = get_antardasha(jd)
+
+    return Response({
+        'status': 'success',
+        **result,
+    })
+
+
+@api_view(['POST'])
+def divisional_chart(request):
+    """
+    POST /api/v1/divisional/
+
+    Returns a divisional chart for a given division number.
+
+    Pass 'division' in the request body:
+        9  = D9 Navamsa  (spouse, dharma)
+        10 = D10 Dashamsa (career)
+        2  = D2 Hora
+        3  = D3 Drekkana
+        12 = D12 Dwadashamsa
+    """
+    d, jd, errors = parse_birth_data(request)
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    division = request.data.get('division', 9)
+    try:
+        division = int(division)
+        if division not in [2, 3, 9, 10, 12]:
+            raise ValueError
+    except (ValueError, TypeError):
+        return Response(
+            {'errors': {'division': 'Must be one of: 2, 3, 9, 10, 12'}},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    result = get_divisional_chart(jd, division)
+
+    return Response({
+        'status':   'success',
+        'ayanamsa': 'Lahiri',
+        **result,
+    })
+
+
+@api_view(['POST'])
+def yogas(request):
+    """
+    POST /api/v1/yogas/
+
+    Detects major Vedic Yogas present in the birth chart:
+    - Pancha Mahapurusha Yogas
+    - Gajakesari, Budha-Aditya, Chandra-Mangala
+    - Dhana Yoga
+    - Kemadruma Yoga
+    - Neecha Bhanga Raja Yoga
+    """
+    d, jd, errors = parse_birth_data(request)
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    result = get_yogas(jd, d['latitude'], d['longitude'])
+
+    return Response({
+        'status':   'success',
+        'ayanamsa': 'Lahiri',
+        **result,
+    })
+
+
+@api_view(['POST'])
+def ashtakavarga(request):
+    """
+    POST /api/v1/ashtakavarga/
+
+    Returns Ashtakavarga scores for each planet across all 12 signs,
+    plus the combined Sarvashtakavarga totals.
+
+    Higher scores = stronger transit/placement in that sign.
+    Score >= 5 = Strong, 3-4 = Moderate, < 3 = Weak.
+    Sarva >= 30 = Strong sign, 25-29 = Moderate, < 25 = Weak.
+    """
+    d, jd, errors = parse_birth_data(request)
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    result = get_ashtakavarga(jd, d['latitude'], d['longitude'])
+
+    return Response({
+        'status':   'success',
+        'ayanamsa': 'Lahiri',
         **result,
     })

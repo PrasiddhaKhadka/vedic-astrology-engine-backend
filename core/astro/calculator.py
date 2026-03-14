@@ -349,3 +349,516 @@ def get_vimshottari_dasha(jd):
         'moon_nakshatra': NAKSHATRA_NAMES[nak_index],
         'mahadasha':    dashas,
     }
+
+
+
+def get_antardasha(jd):
+    """
+    Calculate Vimshottari Antardasha (sub-periods) for each Mahadasha.
+
+    Formula for antardasha duration:
+    Antardasha of planet B inside Mahadasha of planet A =
+        (years_of_A * years_of_B) / 120 years
+    """
+    import datetime
+
+    moon_long       = get_moon_longitude(jd)
+    nak_index       = int(moon_long / (360 / 27))
+    degree_in_nak   = moon_long % (360 / 27)
+    nak_span        = 360 / 27
+    fraction_elapsed = degree_in_nak / nak_span
+
+    start_lord_index    = nak_index % 9
+    start_dasha_years   = DASHA_SEQUENCE[start_lord_index][1]
+    years_remaining     = start_dasha_years * (1 - fraction_elapsed)
+
+    birth_dt   = swe.revjul(jd)
+    birth_date = datetime.date(int(birth_dt[0]), int(birth_dt[1]), int(birth_dt[2]))
+
+    mahadashas = []
+    maha_start = birth_date
+
+    for i in range(9):
+        maha_index  = (start_lord_index + i) % 9
+        maha_lord   = DASHA_SEQUENCE[maha_index][0]
+        maha_years  = DASHA_SEQUENCE[maha_index][1]
+        maha_duration = years_remaining if i == 0 else maha_years
+
+        # Antardashas start from the mahadasha lord itself
+        antardashas = []
+        antar_start = maha_start
+
+        for j in range(9):
+            antar_index = (maha_index + j) % 9
+            antar_lord  = DASHA_SEQUENCE[antar_index][0]
+            antar_years = DASHA_SEQUENCE[antar_index][1]
+
+            # Antardasha duration = (maha_years * antar_years) / 120
+            # But for first mahadasha, scale proportionally
+            if i == 0:
+                antar_duration = (maha_duration / maha_years) * (maha_years * antar_years / TOTAL_DASHA_YEARS)
+            else:
+                antar_duration = (maha_years * antar_years) / TOTAL_DASHA_YEARS
+
+            antar_days = int(antar_duration * 365.25)
+            antar_end  = antar_start + datetime.timedelta(days=antar_days)
+
+            antardashas.append({
+                'lord':       antar_lord,
+                'start_date': str(antar_start),
+                'end_date':   str(antar_end),
+                'years':      round(antar_duration, 4),
+            })
+            antar_start = antar_end
+
+        maha_end = antar_start  # end of last antardasha = end of mahadasha
+
+        mahadashas.append({
+            'lord':        maha_lord,
+            'start_date':  str(maha_start),
+            'end_date':    str(maha_end),
+            'years':       round(maha_duration, 4),
+            'antardasha':  antardashas,
+        })
+        maha_start = maha_end
+
+    return {
+        'system':         'Vimshottari',
+        'moon_nakshatra': NAKSHATRA_NAMES[nak_index],
+        'mahadasha':      mahadashas,
+    }
+
+
+# ─── DIVISIONAL CHARTS ─────────────────────────────────────────────
+
+RASI_LORDS = [
+    "Mars", "Venus", "Mercury", "Moon", "Sun", "Mercury",
+    "Venus", "Mars", "Jupiter", "Saturn", "Saturn", "Jupiter"
+]
+
+
+def get_divisional_chart(jd, division):
+    """
+    Calculate divisional chart positions for all planets.
+
+    D1  = Rasi (natal chart, division=1)
+    D9  = Navamsa (division=9)  — spouse, dharma, inner self
+    D10 = Dashamsa (division=10) — career, profession
+    D2  = Hora
+    D3  = Drekkana
+    D12 = Dwadashamsa
+
+    Formula: D-N position = floor(longitude % 30 / (30/N)) * (360/N/12)
+    Then add to the starting sign based on odd/even sign rules.
+    """
+    init_ephe()
+
+    planet_positions = get_planet_positions(jd)
+    div_positions    = {}
+
+    for planet_name, data in planet_positions.items():
+        longitude   = data['longitude']
+        rasi_index  = data['rasi_index']           # 0–11
+        deg_in_rasi = data['degree_in_rasi']       # 0–30
+
+        # Each rasi is divided into N equal parts of (30/N) degrees
+        part_size   = 30.0 / division
+        part_number = int(deg_in_rasi / part_size)  # 0-based part within rasi
+
+        # D9 Navamsa rule: cycle of 12 signs starts from:
+        # Fire signs  (Aries, Leo, Sag)     → start from Aries   (0)
+        # Earth signs (Taurus, Virgo, Cap)  → start from Capricorn (9)
+        # Air signs   (Gemini, Libra, Aqua) → start from Libra    (6)
+        # Water signs (Cancer, Scorpio, Pis)→ start from Cancer   (3)
+        if division == 9:
+            element = rasi_index % 4
+            start_map = {0: 0, 1: 9, 2: 6, 3: 3}   # Fire/Earth/Air/Water
+            start_sign = start_map[element]
+        elif division == 10:
+            # D10: odd signs start from same sign, even signs start from 9th
+            if rasi_index % 2 == 0:   # odd sign (1,3,5...)
+                start_sign = rasi_index
+            else:                      # even sign
+                start_sign = (rasi_index + 8) % 12
+        elif division == 2:
+            # D2 Hora: Sun hora or Moon hora
+            start_sign = 4 if rasi_index % 2 == 0 else 3  # Leo or Cancer
+        elif division == 3:
+            # D3 Drekkana: 1st=same sign, 2nd=5th, 3rd=9th
+            start_sign = (rasi_index + part_number * 4) % 12
+        elif division == 12:
+            # D12: starts from same sign
+            start_sign = rasi_index
+        else:
+            start_sign = 0
+
+        div_rasi_index = (start_sign + part_number) % 12
+        div_rasi       = RASI_NAMES[div_rasi_index]
+        div_lord       = RASI_LORDS[div_rasi_index]
+
+        div_positions[planet_name] = {
+            'rasi':       div_rasi,
+            'rasi_index': div_rasi_index,
+            'lord':       div_lord,
+            'original_longitude': round(longitude, 6),
+        }
+
+    # Ascendant in divisional chart
+    asc_data    = get_ascendant_and_houses(jd, 0, 0)   # placeholder, recalc below
+    asc_long    = asc_data['ascendant']['longitude']
+    asc_rasi    = int(asc_long / 30)
+    asc_deg     = asc_long % 30
+    part_size   = 30.0 / division
+    part_num    = int(asc_deg / part_size)
+
+    if division == 9:
+        element   = asc_rasi % 4
+        start_map = {0: 0, 1: 9, 2: 6, 3: 3}
+        start_sign = start_map[element]
+    elif division == 10:
+        start_sign = asc_rasi if asc_rasi % 2 == 0 else (asc_rasi + 8) % 12
+    else:
+        start_sign = asc_rasi
+
+    div_asc_index = (start_sign + part_num) % 12
+
+    return {
+        'division':   division,
+        'ascendant':  {
+            'rasi':       RASI_NAMES[div_asc_index],
+            'rasi_index': div_asc_index,
+            'lord':       RASI_LORDS[div_asc_index],
+        },
+        'planets': div_positions,
+    }
+
+
+# ─── YOGAS ─────────────────────────────────────────────────────────
+
+def get_yogas(jd, latitude, longitude):
+    """
+    Detect major Vedic Yogas from planet positions.
+
+    Checks for:
+    - Raj Yogas (planets in kendra + trikona relationship)
+    - Dhana Yogas (wealth combinations)
+    - Pancha Mahapurusha Yogas (planets in own/exalted sign in kendra)
+    - Gajakesari Yoga (Jupiter-Moon relationship)
+    - Budha-Aditya Yoga (Sun-Mercury conjunction)
+    - Chandra-Mangala Yoga (Moon-Mars conjunction/mutual aspect)
+    - Kemadruma Yoga (Moon alone)
+    - Neecha Bhanga Raja Yoga
+    """
+    planets = get_planet_positions(jd)
+    houses  = get_ascendant_and_houses(jd, latitude, longitude)
+
+    asc_rasi = houses['ascendant']['rasi_index']
+
+    # Map each planet to its house number (1–12)
+    def planet_house(planet_rasi_index):
+        return ((planet_rasi_index - asc_rasi) % 12) + 1
+
+    # Kendra houses: 1, 4, 7, 10
+    KENDRA = {1, 4, 7, 10}
+    # Trikona houses: 1, 5, 9
+    TRIKONA = {1, 5, 9}
+    # Dusthana houses: 6, 8, 12
+    DUSTHANA = {6, 8, 12}
+
+    # Exaltation signs
+    EXALTATION = {
+        'sun': 0, 'moon': 1, 'mars': 9, 'mercury': 5,
+        'jupiter': 3, 'venus': 11, 'saturn': 6
+    }
+    # Own signs
+    OWN_SIGN = {
+        'sun':     [4],
+        'moon':    [3],
+        'mars':    [0, 7],
+        'mercury': [2, 5],
+        'jupiter': [8, 11],
+        'venus':   [1, 6],
+        'saturn':  [9, 10],
+    }
+    # Debilitation signs
+    DEBILITATION = {
+        'sun': 6, 'moon': 7, 'mars': 3, 'mercury': 11,
+        'jupiter': 9, 'venus': 5, 'saturn': 0
+    }
+
+    yogas_found = []
+
+    sun_rasi  = planets['sun']['rasi_index']
+    moon_rasi = planets['moon']['rasi_index']
+    mars_rasi = planets['mars']['rasi_index']
+    merc_rasi = planets['mercury']['rasi_index']
+    jupi_rasi = planets['jupiter']['rasi_index']
+    venu_rasi = planets['venus']['rasi_index']
+    satu_rasi = planets['saturn']['rasi_index']
+
+    sun_house  = planet_house(sun_rasi)
+    moon_house = planet_house(moon_rasi)
+    mars_house = planet_house(mars_rasi)
+    merc_house = planet_house(merc_rasi)
+    jupi_house = planet_house(jupi_rasi)
+    venu_house = planet_house(venu_rasi)
+    satu_house = planet_house(satu_rasi)
+
+    # 1. GAJAKESARI YOGA
+    # Jupiter in kendra from Moon
+    jupi_from_moon = ((jupi_rasi - moon_rasi) % 12) + 1
+    if jupi_from_moon in KENDRA:
+        yogas_found.append({
+            'name':        'Gajakesari Yoga',
+            'type':        'Benefic',
+            'description': 'Jupiter in kendra from Moon. Grants intelligence, fame, and prosperity.',
+            'planets':     ['Jupiter', 'Moon'],
+        })
+
+    # 2. BUDHA-ADITYA YOGA
+    # Sun and Mercury in same sign
+    if sun_rasi == merc_rasi:
+        yogas_found.append({
+            'name':        'Budha-Aditya Yoga',
+            'type':        'Benefic',
+            'description': 'Sun and Mercury conjunct. Grants sharp intellect, communication skills.',
+            'planets':     ['Sun', 'Mercury'],
+        })
+
+    # 3. CHANDRA-MANGALA YOGA
+    # Moon and Mars conjunct or in mutual 7th
+    if moon_rasi == mars_rasi or abs(moon_rasi - mars_rasi) == 6:
+        yogas_found.append({
+            'name':        'Chandra-Mangala Yoga',
+            'type':        'Mixed',
+            'description': 'Moon and Mars in conjunction or opposition. Gives financial drive but emotional intensity.',
+            'planets':     ['Moon', 'Mars'],
+        })
+
+    # 4. PANCHA MAHAPURUSHA YOGAS
+    mahapurusha_planets = {
+        'mars':    ('Ruchaka',    'Courage, leadership, land/property gains'),
+        'mercury': ('Bhadra',     'Intelligence, communication, business acumen'),
+        'jupiter': ('Hamsa',      'Wisdom, spirituality, fame, good fortune'),
+        'venus':   ('Malavya',    'Beauty, luxury, artistic talent, marital happiness'),
+        'saturn':  ('Shasha',     'Power, authority, longevity, discipline'),
+    }
+    planet_houses = {
+        'mars': mars_house, 'mercury': merc_house,
+        'jupiter': jupi_house, 'venus': venu_house, 'saturn': satu_house
+    }
+    planet_rasis = {
+        'mars': mars_rasi, 'mercury': merc_rasi,
+        'jupiter': jupi_rasi, 'venus': venu_rasi, 'saturn': satu_rasi
+    }
+
+    for planet, (yoga_name, description) in mahapurusha_planets.items():
+        p_house = planet_houses[planet]
+        p_rasi  = planet_rasis[planet]
+        in_kendra = p_house in KENDRA
+        in_own    = p_rasi in OWN_SIGN.get(planet, [])
+        in_exalt  = p_rasi == EXALTATION.get(planet)
+
+        if in_kendra and (in_own or in_exalt):
+            yogas_found.append({
+                'name':        f'{yoga_name} Yoga',
+                'type':        'Mahapurusha (Benefic)',
+                'description': description,
+                'planets':     [planet.capitalize()],
+            })
+
+    # 5. KEMADRUMA YOGA
+    # Moon has no planet in 2nd or 12th from it
+    moon_2nd  = (moon_rasi + 1) % 12
+    moon_12th = (moon_rasi - 1) % 12
+    all_rasis = [sun_rasi, mars_rasi, merc_rasi, jupi_rasi, venu_rasi, satu_rasi]
+    if moon_2nd not in all_rasis and moon_12th not in all_rasis:
+        yogas_found.append({
+            'name':        'Kemadruma Yoga',
+            'type':        'Malefic',
+            'description': 'Moon isolated with no planets in 2nd or 12th. May cause hardships, loneliness.',
+            'planets':     ['Moon'],
+        })
+
+    # 6. NEECHA BHANGA RAJA YOGA
+    # Debilitated planet's dispositor is in kendra from Lagna or Moon
+    for planet, debil_sign in DEBILITATION.items():
+        if planet_rasis.get(planet) == debil_sign or (planet == 'sun' and sun_rasi == debil_sign) or (planet == 'moon' and moon_rasi == debil_sign):
+            yogas_found.append({
+                'name':        f'Neecha Bhanga Raja Yoga ({planet.capitalize()})',
+                'type':        'Cancellation of Debilitation (Benefic)',
+                'description': f'{planet.capitalize()} is debilitated but gains strength through cancellation, turning weakness into power.',
+                'planets':     [planet.capitalize()],
+            })
+
+    # 7. DHANA YOGAS
+    # Lord of 2nd or 11th house connects with lord of 5th or 9th
+    house_lord_map = {}
+    for h in range(1, 13):
+        sign_index = (asc_rasi + h - 1) % 12
+        house_lord_map[h] = RASI_LORDS[sign_index]
+
+    wealth_lords  = {house_lord_map[2], house_lord_map[11]}
+    fortune_lords = {house_lord_map[5], house_lord_map[9]}
+
+    if wealth_lords & fortune_lords:
+        common = wealth_lords & fortune_lords
+        yogas_found.append({
+            'name':        'Dhana Yoga',
+            'type':        'Benefic',
+            'description': 'Lords of wealth houses (2nd/11th) connect with lords of fortune houses (5th/9th). Strong wealth potential.',
+            'planets':     list(common),
+        })
+
+    return {
+        'ascendant_rasi': RASI_NAMES[asc_rasi],
+        'yogas_found':    len(yogas_found),
+        'yogas':          yogas_found,
+    }
+
+
+# ─── ASHTAKAVARGA ──────────────────────────────────────────────────
+def get_ashtakavarga(jd, latitude, longitude):
+    """
+    Correct Parashari Ashtakavarga.
+    
+    For each planet P, each contributor C (7 planets + Lagna) contributes
+    a point to specific houses counted FROM C's own position.
+    The tables below are from Brihat Parashara Hora Shastra.
+    """
+    planets = get_planet_positions(jd)
+    houses  = get_ascendant_and_houses(jd, latitude, longitude)
+
+    asc_rasi  = houses['ascendant']['rasi_index']
+    p = {
+        'sun':      planets['sun']['rasi_index'],
+        'moon':     planets['moon']['rasi_index'],
+        'mars':     planets['mars']['rasi_index'],
+        'mercury':  planets['mercury']['rasi_index'],
+        'jupiter':  planets['jupiter']['rasi_index'],
+        'venus':    planets['venus']['rasi_index'],
+        'saturn':   planets['saturn']['rasi_index'],
+        'lagna':    asc_rasi,
+    }
+
+    # BPHS Ashtakavarga tables
+    # Format: {planet_being_scored: {contributor: [benefic offsets from contributor]}}
+    # Offsets are 1-based house positions FROM the contributor
+    AVARGA_TABLES = {
+        'sun': {
+            'sun':     [1, 2, 4, 7, 8, 9, 10, 11],
+            'moon':    [3, 6, 10, 11],
+            'mars':    [1, 2, 4, 7, 8, 9, 10, 11],
+            'mercury': [3, 5, 6, 9, 10, 11, 12],
+            'jupiter': [5, 6, 9, 11],
+            'venus':   [6, 7, 12],
+            'saturn':  [1, 2, 4, 7, 8, 9, 10, 11],
+            'lagna':   [3, 4, 6, 10, 11, 12],
+        },
+        'moon': {
+            'sun':     [3, 6, 7, 8, 10, 11],
+            'moon':    [1, 3, 6, 7, 10, 11],
+            'mars':    [2, 3, 5, 6, 9, 10, 11],
+            'mercury': [1, 3, 4, 5, 7, 8, 10, 11],
+            'jupiter': [1, 4, 7, 8, 10, 11, 12],
+            'venus':   [3, 4, 5, 7, 9, 10, 11],
+            'saturn':  [3, 5, 6, 11],
+            'lagna':   [3, 6, 10, 11],
+        },
+        'mars': {
+            'sun':     [3, 5, 6, 10, 11],
+            'moon':    [3, 6, 11],
+            'mars':    [1, 2, 4, 7, 8, 10, 11],
+            'mercury': [3, 5, 6, 11],
+            'jupiter': [6, 10, 11, 12],
+            'venus':   [6, 8, 11, 12],
+            'saturn':  [1, 4, 7, 8, 9, 10, 11],
+            'lagna':   [1, 3, 6, 10, 11],
+        },
+        'mercury': {
+            'sun':     [5, 6, 9, 11, 12],
+            'moon':    [2, 4, 6, 8, 10, 11],
+            'mars':    [1, 2, 4, 7, 8, 9, 10, 11],
+            'mercury': [1, 3, 5, 6, 9, 10, 11, 12],
+            'jupiter': [6, 8, 11, 12],
+            'venus':   [1, 2, 3, 4, 5, 8, 9, 11],
+            'saturn':  [1, 2, 4, 7, 8, 9, 10, 11],
+            'lagna':   [1, 2, 4, 6, 8, 10, 11],
+        },
+        'jupiter': {
+            'sun':     [1, 2, 3, 4, 7, 8, 9, 10, 11],
+            'moon':    [2, 5, 7, 9, 11],
+            'mars':    [1, 2, 4, 7, 8, 10, 11],
+            'mercury': [1, 2, 4, 5, 6, 9, 10, 11],
+            'jupiter': [1, 2, 3, 4, 7, 8, 10, 11],
+            'venus':   [2, 5, 6, 9, 10, 11],
+            'saturn':  [3, 5, 6, 12],
+            'lagna':   [1, 2, 4, 5, 6, 7, 9, 10, 11],
+        },
+        'venus': {
+            'sun':     [8, 11, 12],
+            'moon':    [1, 2, 3, 4, 5, 8, 9, 11, 12],
+            'mars':    [3, 4, 6, 9, 11, 12],
+            'mercury': [3, 5, 6, 9, 11],
+            'jupiter': [5, 8, 9, 10, 11],
+            'venus':   [1, 2, 3, 4, 5, 8, 9, 10, 11],
+            'saturn':  [3, 4, 5, 8, 9, 10, 11],
+            'lagna':   [1, 2, 3, 4, 5, 8, 9, 11],
+        },
+        'saturn': {
+            'sun':     [1, 2, 4, 7, 8, 10, 11],
+            'moon':    [3, 6, 11],
+            'mars':    [3, 5, 6, 10, 11, 12],
+            'mercury': [6, 8, 9, 10, 11, 12],
+            'jupiter': [5, 6, 11, 12],
+            'venus':   [6, 11, 12],
+            'saturn':  [3, 5, 6, 11],
+            'lagna':   [1, 3, 4, 6, 10, 11],
+        },
+    }
+
+    planet_avarga = {}
+    sarva = [0] * 12
+
+    for planet_name, contributor_table in AVARGA_TABLES.items():
+        scores = [0] * 12
+
+        for contributor, benefic_offsets in contributor_table.items():
+            ref_rasi = p[contributor]
+            for offset in benefic_offsets:
+                benefic_sign = (ref_rasi + offset - 1) % 12
+                scores[benefic_sign] += 1
+
+        planet_avarga[planet_name] = {
+            'scores': scores,
+            'total':  sum(scores),
+            'signs': [
+                {
+                    'rasi':     RASI_NAMES[i],
+                    'score':    scores[i],
+                    'strength': 'Strong' if scores[i] >= 5 else ('Moderate' if scores[i] >= 3 else 'Weak')
+                }
+                for i in range(12)
+            ]
+        }
+
+        for i in range(12):
+            sarva[i] += scores[i]
+
+    sarvashtakavarga = {
+        'scores': sarva,
+        'total':  sum(sarva),
+        'signs': [
+            {
+                'rasi':     RASI_NAMES[i],
+                'score':    sarva[i],
+                'strength': 'Strong' if sarva[i] >= 30 else ('Moderate' if sarva[i] >= 25 else 'Weak')
+            }
+            for i in range(12)
+        ]
+    }
+
+    return {
+        'bhinnashtakavarga': planet_avarga,
+        'sarvashtakavarga':  sarvashtakavarga,
+    }
