@@ -1324,3 +1324,315 @@ def check_mangal_dosha(jd, latitude, longitude):
         'mars_rasi':            RASI_NAMES[mars_rasi],
         'ascendant_rasi':       RASI_NAMES[asc_rasi],
     }
+
+
+# ─── PHASE 5: GOCHAR (TRANSITS) ────────────────────────────────────
+
+import datetime as dt
+
+# Transit interpretations for each planet through each house
+# Format: (house_number): (effect)
+TRANSIT_EFFECTS = {
+    'sun': {
+        1:  "Self-focus, health matters, new beginnings",
+        2:  "Financial gains, family focus, speech matters",
+        3:  "Courage, travel, siblings, communication",
+        4:  "Home, mother, emotional matters, vehicles",
+        5:  "Children, creativity, education, romance",
+        6:  "Victory over enemies, health improvements",
+        7:  "Partnerships, marriage matters, public dealings",
+        8:  "Obstacles, hidden matters, transformation",
+        9:  "Luck, spirituality, father, long journeys",
+        10: "Career peak, authority, public recognition",
+        11: "Gains, income, social circle, elder siblings",
+        12: "Expenses, isolation, foreign travel, losses",
+    },
+    'moon': {
+        1:  "Good health, travel, emotional sensitivity",
+        2:  "Financial gains, family harmony, good food",
+        3:  "Short journeys, courage, siblings connect",
+        4:  "Home comfort, mother's wellbeing, happiness",
+        5:  "Romance, children matters, creative spark",
+        6:  "Health issues possible, conflicts with rivals",
+        7:  "Social life, partnerships, meeting people",
+        8:  "Emotional turbulence, avoid risky decisions",
+        9:  "Spiritual pursuits, pilgrimages, good fortune",
+        10: "Career gains, public image boost",
+        11: "Gains, social success, wish fulfillment",
+        12: "Rest, isolation, spiritual retreat, expenses",
+    },
+    'mars': {
+        1:  "Energy boost, assertiveness, possible conflicts",
+        2:  "Expenses on family, speech issues, financial stress",
+        3:  "Courage, short travels, sibling matters",
+        4:  "Domestic tension, property matters, vehicle issues",
+        5:  "Children concerns, speculation risks",
+        6:  "Victory over enemies, good for health",
+        7:  "Relationship conflicts, partner's health concerns",
+        8:  "Accidents risk, health issues, transformation",
+        9:  "Father's health, travel, religious matters",
+        10: "Career drive, ambition peak, workplace conflicts",
+        11: "Income gains, social energy, elder sibling matters",
+        12: "Expenses, hidden enemies, foreign matters",
+    },
+    'jupiter': {
+        1:  "Personal growth, wisdom, health improvement",
+        2:  "Wealth accumulation, family blessings, speech",
+        3:  "Short journeys, sibling prosperity, courage",
+        4:  "Home expansion, mother's wellbeing, property",
+        5:  "Children blessings, education success, romance",
+        6:  "Service, health issues resolution, debts cleared",
+        7:  "Marriage blessings, partnerships flourish",
+        8:  "Hidden knowledge, occult, inheritance possible",
+        9:  "Best transit — luck, spirituality, guru blessings",
+        10: "Career expansion, promotions, authority",
+        11: "Maximum gains, income surge, wishes fulfilled",
+        12: "Spiritual growth, foreign travel, moksha themes",
+    },
+    'saturn': {
+        1:  "Sade Sati peak — hard work, health focus, delays",
+        2:  "Financial caution, family responsibilities",
+        3:  "Effort rewarded slowly, sibling matters",
+        4:  "Home stress, mother's health, vehicle issues",
+        5:  "Children matters, creative blocks, education delays",
+        6:  "Discipline wins, health improvement, enemy defeat",
+        7:  "Relationship tests, partner's hardships",
+        8:  "Chronic illness risk, hidden obstacles",
+        9:  "Father's health, spiritual discipline, travel delays",
+        10: "Career discipline, slow but steady progress",
+        11: "Gains after effort, delayed income",
+        12: "Isolation, spiritual discipline, foreign stays",
+    },
+    'mercury': {
+        1:  "Sharp intellect, communication boost, travel",
+        2:  "Financial planning, education, speech gains",
+        3:  "Writing, travel, sibling communication",
+        4:  "Home education, mother communication",
+        5:  "Intellectual creativity, children education",
+        6:  "Problem-solving, health analysis",
+        7:  "Business partnerships, negotiations",
+        8:  "Research, occult studies, tax matters",
+        9:  "Higher education, publishing, long travel",
+        10: "Career communication, presentations",
+        11: "Income from intellect, social networking",
+        12: "Foreign communication, spiritual study",
+    },
+    'venus': {
+        1:  "Charm, beauty, romantic attention",
+        2:  "Wealth inflow, family harmony, luxuries",
+        3:  "Artistic pursuits, social travel, siblings",
+        4:  "Home beautification, mother's joy, comfort",
+        5:  "Romance peak, creativity, children joy",
+        6:  "Health through beauty, rivals subdued",
+        7:  "Marriage blessings, partnership harmony",
+        8:  "Sensual pleasures, hidden relationships",
+        9:  "Luxurious travel, religious art, fortunate",
+        10: "Career in arts/beauty, public admiration",
+        11: "Social gains, income from beauty/arts",
+        12: "Pleasures in isolation, foreign romance",
+    },
+    'rahu': {
+        1:  "Unusual events, ambition surge, identity shifts",
+        2:  "Unconventional income, foreign food/speech",
+        3:  "Fearless action, unusual travel, media",
+        4:  "Property matters, foreign residence, home changes",
+        5:  "Speculative gains/losses, unconventional romance",
+        6:  "Victory over enemies through unusual means",
+        7:  "Foreign/unconventional partnerships",
+        8:  "Sudden transformation, occult interests",
+        9:  "Foreign religion/philosophy, unusual beliefs",
+        10: "Sudden career rise, unconventional fame",
+        11: "Large gains, foreign income, unusual friends",
+        12: "Foreign lands, spiritual confusion, isolation",
+    },
+    'ketu': {
+        1:  "Detachment from self, spiritual awakening",
+        2:  "Financial detachment, speech issues",
+        3:  "Short spiritual journeys, detachment from siblings",
+        4:  "Home detachment, mother's spiritual matters",
+        5:  "Past life karma with children, detachment",
+        6:  "Karmic health issues, service orientation",
+        7:  "Spiritual partnerships, detachment from marriage",
+        8:  "Moksha themes, deep transformation",
+        9:  "Spiritual pilgrimages, guru karma",
+        10: "Career detachment, spiritual fame",
+        11: "Detachment from gains, spiritual income",
+        12: "Moksha, liberation, deep spiritual retreat",
+    },
+}
+
+# Ashtakavarga transit scores threshold for good transit
+GOOD_TRANSIT_THRESHOLD = 4
+
+
+def get_current_jd():
+    """Get Julian Day for current UTC time."""
+    now = dt.datetime.utcnow()
+    return swe.julday(now.year, now.month, now.day,
+                      now.hour + now.minute / 60.0 + now.second / 3600.0)
+
+
+def get_transit_positions(transit_jd):
+    """
+    Get all planet positions for a given Julian Day (transit time).
+    Returns sidereal positions using Lahiri ayanamsa.
+    """
+    return get_planet_positions(transit_jd)
+
+
+def analyze_transits(natal_jd, transit_jd, natal_lat, natal_lon):
+    """
+    Compare transit planet positions against natal chart houses.
+
+    For each transiting planet:
+    - Find which natal house it occupies
+    - Look up the classical effect
+    - Check Ashtakavarga score for that sign
+    - Flag if it's transiting natal planet positions (conjunctions)
+    """
+    natal_houses  = get_ascendant_and_houses(natal_jd, natal_lat, natal_lon)
+    natal_planets = get_planet_positions(natal_jd)
+    transit_planets = get_transit_positions(transit_jd)
+
+    asc_rasi = natal_houses['ascendant']['rasi_index']
+
+    # Get Ashtakavarga scores for transit strength
+    avarga = get_ashtakavarga(natal_jd, natal_lat, natal_lon)
+
+    transits = []
+
+    for planet_name, t_data in transit_planets.items():
+        if planet_name == 'ketu':
+            continue  # Ketu = Rahu + 180, calculated from Rahu
+
+        t_rasi   = t_data['rasi_index']
+        t_house  = ((t_rasi - asc_rasi) % 12) + 1
+
+        # Ashtakavarga score for this planet in the transiting sign
+        avarga_score = None
+        if planet_name in avarga['bhinnashtakavarga']:
+            avarga_score = avarga['bhinnashtakavarga'][planet_name]['scores'][t_rasi]
+
+        # Effect lookup
+        effect = TRANSIT_EFFECTS.get(planet_name, {}).get(t_house, "Neutral transit")
+
+        # Check conjunctions with natal planets (within 3° orb)
+        conjunctions = []
+        for n_planet, n_data in natal_planets.items():
+            orb = abs(t_data['longitude'] - n_data['longitude'])
+            if orb > 180:
+                orb = 360 - orb
+            if orb <= 3.0:
+                conjunctions.append({
+                    'natal_planet': n_planet,
+                    'orb':          round(orb, 2),
+                })
+
+        # Overall favorability
+        if avarga_score is not None:
+            favorable = avarga_score >= GOOD_TRANSIT_THRESHOLD
+        else:
+            favorable = t_house in {2, 3, 6, 10, 11}  # Classical good houses
+
+        transits.append({
+            'planet':          planet_name,
+            'transit_rasi':    t_data['rasi'],
+            'transit_house':   t_house,
+            'longitude':       t_data['longitude'],
+            'retrograde':      t_data['retrograde'],
+            'avarga_score':    avarga_score,
+            'favorable':       favorable,
+            'effect':          effect,
+            'conjunctions':    conjunctions,
+        })
+
+    # Sort by planet importance
+    order = ['jupiter', 'saturn', 'rahu', 'mars', 'sun', 'moon', 'mercury', 'venus']
+    transits.sort(key=lambda x: order.index(x['planet']) if x['planet'] in order else 99)
+
+    return transits
+
+
+def get_sade_sati(natal_jd, transit_jd):
+    """
+    Check if the person is currently in Sade Sati or Dhaiya (Kantaka Shani).
+
+    Sade Sati: Saturn transiting the sign before, same as,
+               or after natal Moon sign (7.5 years total, 3 phases).
+    Dhaiya:    Saturn in 4th or 8th from natal Moon (2.5 years each).
+    """
+    natal_planets   = get_planet_positions(natal_jd)
+    transit_planets = get_transit_positions(transit_jd)
+
+    moon_rasi    = natal_planets['moon']['rasi_index']
+    saturn_rasi  = transit_planets['saturn']['rasi_index']
+
+    diff = (saturn_rasi - moon_rasi) % 12
+
+    in_sade_sati = diff in {0, 1, 11}   # same, next, previous sign
+    in_dhaiya    = diff in {3, 7}        # 4th or 8th from Moon
+
+    phase = None
+    if diff == 11:
+        phase = "Rising (1st phase) — Saturn in 12th from Moon"
+    elif diff == 0:
+        phase = "Peak (2nd phase) — Saturn on natal Moon sign"
+    elif diff == 1:
+        phase = "Setting (3rd phase) — Saturn in 2nd from Moon"
+
+    dhaiya_type = None
+    if diff == 3:
+        dhaiya_type = "Kantaka Shani — Saturn in 4th from Moon"
+    elif diff == 7:
+        dhaiya_type = "Ashtama Shani — Saturn in 8th from Moon"
+
+    return {
+        'natal_moon_rasi':   RASI_NAMES[moon_rasi],
+        'transit_saturn_rasi': RASI_NAMES[saturn_rasi],
+        'in_sade_sati':      in_sade_sati,
+        'sade_sati_phase':   phase,
+        'in_dhaiya':         in_dhaiya,
+        'dhaiya_type':       dhaiya_type,
+        'saturn_from_moon':  diff + 1,   # 1-based house from Moon
+    }
+
+
+def get_moon_transit(transit_jd):
+    """
+    Get detailed Moon transit data — Chandra Gochar.
+    Moon changes sign every ~2.25 days.
+    Returns current nakshatra, rasi, and Chandra Ashtakavarga score.
+    """
+    init_ephe()
+    flags     = swe.FLG_SWIEPH | swe.FLG_SIDEREAL | swe.FLG_SPEED
+    result, _ = swe.calc_ut(transit_jd, swe.MOON, flags)
+
+    moon_long = result[0]
+    moon_speed = result[3]   # degrees/day
+
+    rasi_index  = int(moon_long / 30)
+    deg_in_rasi = moon_long % 30
+    nak_index   = int(moon_long / (360 / 27))
+    deg_in_nak  = moon_long % (360 / 27)
+    pada        = int(deg_in_nak / (360 / 108)) + 1
+
+    # Degrees remaining in current sign
+    degrees_remaining = 30.0 - deg_in_rasi
+    hours_remaining   = (degrees_remaining / abs(moon_speed)) * 24 if moon_speed != 0 else None
+
+    # Next sign
+    next_rasi_index = (rasi_index + 1) % 12
+
+    return {
+        'moon_longitude':      round(moon_long, 6),
+        'rasi':                RASI_NAMES[rasi_index],
+        'rasi_index':          rasi_index,
+        'degree_in_rasi':      round(deg_in_rasi, 4),
+        'nakshatra':           NAKSHATRA_NAMES[nak_index],
+        'nakshatra_lord':      NAKSHATRA_LORDS[nak_index],
+        'pada':                pada,
+        'speed_deg_per_day':   round(moon_speed, 4),
+        'degrees_to_next_sign': round(degrees_remaining, 4),
+        'hours_to_next_sign':  round(hours_remaining, 1) if hours_remaining else None,
+        'next_rasi':           RASI_NAMES[next_rasi_index],
+    }

@@ -18,6 +18,11 @@ from core.astro.calculator import (
     get_ashtakavarga,
     calculate_ashtakoot, 
     check_mangal_dosha,  
+    analyze_transits,      
+    get_sade_sati,        
+    get_moon_transit,       
+    get_current_jd,        
+    RASI_NAMES,
 )
 
 
@@ -438,3 +443,124 @@ def mangal_dosha(request):
         ),
     })
 
+
+@api_view(['POST'])
+def transits_current(request):
+    """
+    POST /api/v1/transits/current/
+
+    Shows where all planets are RIGHT NOW vs your natal chart.
+    Includes house placement, effect, Ashtakavarga score,
+    Sade Sati check, and conjunctions with natal planets.
+
+    Body: standard birth data (natal chart only)
+    """
+    d, jd_natal, errors = parse_birth_data(request)
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    jd_now     = get_current_jd()
+    now_utc    = __import__('datetime').datetime.utcnow()
+
+    transits   = analyze_transits(jd_natal, jd_now, d['latitude'], d['longitude'])
+    sade_sati  = get_sade_sati(jd_natal, jd_now)
+    moon_now   = get_moon_transit(jd_now)
+
+    return Response({
+        'status':        'success',
+        'transit_time':  str(now_utc.strftime('%Y-%m-%d %H:%M UTC')),
+        'ayanamsa':      'Lahiri',
+        'sade_sati':     sade_sati,
+        'moon_transit':  moon_now,
+        'transits':      transits,
+    })
+
+
+@api_view(['POST'])
+def transits_date(request):
+    """
+    POST /api/v1/transits/date/
+
+    Transits for a specific date vs natal chart.
+
+    Body: natal birth data + transit_date field:
+    {
+        ...birth data...,
+        "transit_year":  2026,
+        "transit_month": 6,
+        "transit_day":   15,
+        "transit_hour":  12,
+        "transit_minute": 0
+    }
+    """
+    d, jd_natal, errors = parse_birth_data(request)
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Parse transit date
+    try:
+        t_year   = int(request.data['transit_year'])
+        t_month  = int(request.data['transit_month'])
+        t_day    = int(request.data['transit_day'])
+        t_hour   = int(request.data.get('transit_hour', 12))
+        t_minute = int(request.data.get('transit_minute', 0))
+    except (KeyError, ValueError, TypeError):
+        return Response(
+            {'errors': 'transit_year, transit_month, transit_day are required.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    jd_transit = get_julian_day(t_year, t_month, t_day, t_hour, t_minute)
+
+    transits  = analyze_transits(jd_natal, jd_transit, d['latitude'], d['longitude'])
+    sade_sati = get_sade_sati(jd_natal, jd_transit)
+    moon_data = get_moon_transit(jd_transit)
+
+    return Response({
+        'status':         'success',
+        'transit_date':   f'{t_year}-{t_month:02d}-{t_day:02d}',
+        'ayanamsa':       'Lahiri',
+        'sade_sati':      sade_sati,
+        'moon_transit':   moon_data,
+        'transits':       transits,
+    })
+
+
+@api_view(['POST'])
+def transits_moon(request):
+    """
+    POST /api/v1/transits/moon/
+
+    Current Moon transit details — Chandra Gochar.
+    Shows current nakshatra, rasi, time to next sign change.
+
+    Optionally accepts a transit date — defaults to NOW.
+
+    Body: optional transit_year, transit_month, transit_day
+    """
+    transit_year  = request.data.get('transit_year')
+    transit_month = request.data.get('transit_month')
+    transit_day   = request.data.get('transit_day')
+
+    if transit_year and transit_month and transit_day:
+        try:
+            jd_transit = get_julian_day(
+                int(transit_year), int(transit_month), int(transit_day),
+                int(request.data.get('transit_hour', 12)),
+                int(request.data.get('transit_minute', 0))
+            )
+        except (ValueError, TypeError):
+            return Response(
+                {'errors': 'Invalid transit date provided.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    else:
+        jd_transit = get_current_jd()
+
+    moon_data = get_moon_transit(jd_transit)
+
+    return Response({
+        'status':  'success',
+        'ayanamsa': 'Lahiri',
+        **moon_data,
+    })
