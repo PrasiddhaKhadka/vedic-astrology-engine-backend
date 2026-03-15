@@ -16,17 +16,33 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.http import JsonResponse
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
 
+
+ 
+def health_check(request):
+    """
+    GET /api/health/
+    Render uses this to verify the service is running.
+    Returns 200 as long as Django is up.
+    """
+    return JsonResponse({'status': 'ok', 'service': 'astrogyan-api'})
+
+
+
 urlpatterns = [
     
     path('admin/', admin.site.urls),
      # ── AstroGyan API ────────────────────────────────────────────────────────
     path('api/v1/', include('core.api.urls')),
+
+    # ── Health check (required by Render) ─────────────────────────────────────
+    path('api/health/', health_check, name='health-check'),
  
     # ── OpenAPI / Swagger ────────────────────────────────────────────────────
     path('api/schema/',  SpectacularAPIView.as_view(),    name='schema'),

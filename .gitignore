@@ -1,5 +1,45 @@
-venv/
-__pycache__/
-*.pyc
-db.sqlite3
+# ── Environment & Secrets ──────────────────────────────────────────────────────
 .env
+.env.*
+!.env.example
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual Environments ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+
+# ── Django ────────────────────────────────────────────────────────────────────
+*.log
+staticfiles/
+media/
+db.sqlite3
+
+# ── Ephemeris — KEEP THESE (needed on Render) ─────────────────────────────────
+# Do NOT add ephemeris/ to .gitignore
+# The .se1 files must be committed so Render can access them
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
