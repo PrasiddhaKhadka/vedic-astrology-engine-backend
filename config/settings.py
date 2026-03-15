@@ -6,6 +6,8 @@ Reads from environment variables (Render env vars) or .env file locally.
 from pathlib import Path
 import dj_database_url
 from decouple import config, Csv
+import os
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -16,12 +18,10 @@ SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-insecure-change-me-in-p
 
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config(
+ALLOWED_HOSTS = os.environ.get(
     'ALLOWED_HOSTS',
-    default='127.0.0.1,localhost',
-    cast=Csv(),
-)
-
+    '127.0.0.1,localhost'
+).split(',')
 
 # ─── Installed Apps ────────────────────────────────────────────────────────────
 
