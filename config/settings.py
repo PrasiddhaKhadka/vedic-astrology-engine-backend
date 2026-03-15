@@ -25,8 +25,7 @@ SECRET_KEY = 'django-insecure-g8!j&$kg%c8(wx$2@enq@sk+jzkz38%x11y8p4wcild1-1y2+%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 
@@ -39,17 +38,20 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'drf_spectacular',
+    'corsheaders', 
     'core',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'core.middleware.SecurityHeadersMiddleware',  
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -133,36 +135,110 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # ── Rate limiting ──────────────────────────────────────────────────────────
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon':              '100/hour',    # unauthenticated — 100 req/hour
+        'user':              '1000/hour',   # authenticated  — 1000 req/hour
+        'chart':             '30/minute',   # heavy endpoints (chart, antardasha)
+        'compatibility':     '20/minute',   # compatibility endpoints
+        'transits':          '60/minute',   # transit endpoints
+    },
+
 }
+
+# ─── CORS ──────────────────────────────────────────────────────────────────────
+# Development — allow all origins
+CORS_ALLOW_ALL_ORIGINS = True   # Set False in production
+
+
+# Production — whitelist specific origins like:
+# CORS_ALLOW_ALL_ORIGINS = False
+# CORS_ALLOWED_ORIGINS = [
+#     "https://yourfrontend.com",
+#     "https://app.astrogyan.com",
+#     "http://localhost:3000",
+# ]
+
+CORS_ALLOW_METHODS = [
+    'GET',
+    'POST',
+    'PUT',
+    'DELETE'
+    'OPTIONS',
+]
+
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'authorization',
+    'content-type',
+    'origin',
+    'x-requested-with',
+    'x-api-key',           # for future API key auth
+]
+
+CORS_ALLOW_CREDENTIALS = False         # Set True if you add cookie-based auth
+CORS_PREFLIGHT_MAX_AGE = 86400         # Cache preflight for 24 hours
+
+
+# ─── Security Headers (Helmet equivalent) ─────────────────────────────────────
+# Django's built-in SecurityMiddleware settings
+SECURE_BROWSER_XSS_FILTER       = True
+SECURE_CONTENT_TYPE_NOSNIFF     = True
+X_FRAME_OPTIONS                 = 'DENY'
+
+
+# Enable these in production (requires HTTPS):
+# SECURE_SSL_REDIRECT             = True
+# SECURE_HSTS_SECONDS             = 31536000   # 1 year
+# SECURE_HSTS_INCLUDE_SUBDOMAINS  = True
+# SECURE_HSTS_PRELOAD             = True
+# SESSION_COOKIE_SECURE           = True
+# CSRF_COOKIE_SECURE              = True
+
+
+# ─── Content Security Policy (django-csp) ─────────────────────────────────────
+CSP_DEFAULT_SRC  = ("'self'",)
+CSP_SCRIPT_SRC   = ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net")   # for Swagger UI
+CSP_STYLE_SRC    = ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net")
+CSP_IMG_SRC      = ("'self'", "data:", "cdn.jsdelivr.net")
+CSP_FONT_SRC     = ("'self'", "cdn.jsdelivr.net")
+CSP_CONNECT_SRC  = ("'self'",)
+CSP_FRAME_SRC    = ("'none'",)
+CSP_OBJECT_SRC   = ("'none'",)
+CSP_BASE_URI     = ("'self'",)
+CSP_FORM_ACTION  = ("'self'",)
+
 
 
 # Swagger / OpenAPI docs configuration
+# ─── Spectacular ───────────────────────────────────────────────────────────────
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'AstroGyan API',
-    'DESCRIPTION': (
-        '**Vedic Astrology API** built with Django + PySwissEph + PyJHora.\n\n'
-        'Uses **Lahiri ayanamsa** (sidereal) for all calculations.\n\n'
-        '### Phases\n'
-        '- **Phase 1** — Planet Positions & Houses\n'
-        '- **Phase 2** — Nakshatra, Panchang & Vimshottari Dasha\n'
-        '- **Phase 3** — Divisional Charts, Yogas, Ashtakavarga\n'
-        '- **Phase 4** — Compatibility (Guna Milan, Mangal Dosha)\n'
-        '- **Phase 5** — Transits (current & date-specific)\n'
-    ),
-    'VERSION': '1.0.0',
+    'TITLE':       'AstroGyan API',
+    'DESCRIPTION': 'Open-source Vedic Astrology (Jyotish) REST API — Lahiri ayanamsa, Swiss Ephemeris',
+    'VERSION':     '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
-    'SWAGGER_UI_SETTINGS': {
-        'deepLinking': True,
-        'displayRequestDuration': True,
-        'filter': True,
-        'persistAuthorization': True,
-    },
-    'SORT_OPERATIONS': False,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'TAGS': [
-        {'name': 'Phase 1 — Planets & Houses',            'description': 'Planet positions and house cusps'},
-        {'name': 'Phase 2 — Nakshatra, Panchang & Dasha', 'description': 'Nakshatra, Panchang, Vimshottari Dasha'},
-        {'name': 'Phase 3 — Advanced Chart Analysis',     'description': 'Divisional charts, Yogas, Ashtakavarga'},
-        {'name': 'Phase 4 — Compatibility',               'description': 'Guna Milan and Mangal Dosha'},
-        {'name': 'Phase 5 — Transits',                    'description': 'Planetary transits and Moon Gochar'},
+        {'name': 'Chart',         'description': 'Birth chart — planets, ascendant, houses'},
+        {'name': 'Panchang',      'description': 'Nakshatra, Tithi, Vara, Yoga, Karana'},
+        {'name': 'Dasha',         'description': 'Vimshottari Mahadasha & Antardasha'},
+        {'name': 'Divisional',    'description': 'D-series charts (D2–D60)'},
+        {'name': 'Yogas',         'description': 'Vedic yoga detection'},
+        {'name': 'Ashtakavarga',  'description': 'Planetary strength scoring'},
+        {'name': 'Compatibility', 'description': 'Kundali Milan — Guna matching & Mangal Dosha'},
+        {'name': 'Transits',      'description': 'Gochar — current & date-specific transits'},
     ],
 }
+
+
+# ─── Static / i18n ────────────────────────────────────────────────────────────
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE     = 'UTC'
+USE_I18N      = True
+USE_TZ        = True
+STATIC_URL    = 'static/'
